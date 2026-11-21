@@ -3,7 +3,7 @@
 import argparse
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from pydantic import ValidationError
 
@@ -11,9 +11,11 @@ from workelate.briefs.service import generate_briefs
 from workelate.config import load_settings
 from workelate.forgetting.service import forget_information
 from workelate.ingestion.errors import IngestionError
-from workelate.ingestion.service import ingest_day
+from workelate.ingestion.service import database_path, ingest_day
 from workelate.reasoning.answer_engine import ask_question
 from workelate.schemas import AskRequest, BriefRequest, ForgetRequest, IngestRequest
+from workelate.storage.database import connect_database
+from workelate.ui_options import person_dates
 
 class BriefApiRequest(BriefRequest):
     pretty: bool = False
@@ -46,6 +48,21 @@ class APIHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/api/health":
             self._send_json(200, {"ok": True})
+        elif path == "/api/people":
+            try:
+                database = database_path(self.server.settings)
+                people = []
+                if database.exists():
+                    with connect_database(database, read_only=True) as conn:
+                        people = [dict(row) for row in conn.execute("SELECT id,name FROM people ORDER BY id")]
+                self._send_json(200, people)
+            except Exception:
+                self._send_json(500, {"error": "people_unavailable"})
+        elif len(parts := path.strip("/").split("/")) == 4 and parts[:2] == ["api", "people"] and parts[3] == "dates":
+            try:
+                self._send_json(200, person_dates(unquote(parts[2]), self.server.settings))
+            except Exception:
+                self._send_json(500, {"error": "dates_unavailable"})
         else:
             self._send_json(404, {"error": "not_found"})
 
