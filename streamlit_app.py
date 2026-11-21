@@ -48,7 +48,7 @@ def api_post(path, body):
 
 def show_error(exc):
     if exc.code == "previous_day_not_ingested":
-        st.error("Ingest the previous day first. Run days in order: 1 → 2 → 3 → 4 → 5.")
+        st.error("Ingest the previous day first. Run days in order: 1 → 2 → 3 → …")
     elif exc.code == "backend_unreachable":
         st.error("Backend is not reachable. Start it with `python -m workelate.api --port 8000`.")
     else:
@@ -156,7 +156,7 @@ ingest_tab, brief_tab, ask_tab, forget_tab = st.tabs(["Ingest", "Brief", "Ask", 
 with ingest_tab:
     st.header("Ingest")
     st.caption("Load one day at a time. Day 1 resets the run.")
-    day = st.number_input("Day", min_value=1, max_value=5, value=1, step=1, key="ingest_day")
+    day = st.number_input("Day", min_value=1, value=1, step=1, key="ingest_day")
     if st.button("Ingest day", type="primary"):
         try:
             show_result(api_post("/api/ingest", {"day": day}))
