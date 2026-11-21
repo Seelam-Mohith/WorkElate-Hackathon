@@ -126,7 +126,7 @@ def ask_question(person_id, at, question, settings, *, llm_client=None, embedder
                 return finish(result(clarify={"question": "Which client do you mean?", "options": [{"id": key, "text": value} for key, value in sorted(clients.items())]}), "ambiguous_client")
         query_vector, model_key = None, None
         if not cards:
-            embedder = embedder or embedding_client(settings.search)
+            embedder = embedder or embedding_client(settings.search, cache_dir=settings.runtime_dir / "models")
             if embedder and conn.execute("SELECT 1 FROM record_vectors WHERE model_key=? AND record_id IN (SELECT value FROM json_each(?)) LIMIT 1", (embedder.key, json.dumps([record["id"] for record in resolution.records if parse_utc(record["at"]) <= times.as_of]))).fetchone():
                 tick = time.monotonic()
                 embedded = None
@@ -147,7 +147,7 @@ def ask_question(person_id, at, question, settings, *, llm_client=None, embedder
                     (embedder.model, embedded.input_tokens if embedded else None, embedded.cost_usd if embedded else None,
                      int((time.monotonic() - tick) * 1000), "completed" if query_vector is not None else "failed"))
         retrieved = retrieve(conn, question, person_id, times, resolution, classification, depth=settings.search.depth,
-                             query_vector=query_vector, model_key=model_key, through_day=through_day)
+                             query_vector=query_vector, model_key=model_key, through_day=through_day, settings=settings)
         if cards:
             # Add answer-bearing people/task IDs, without inventing record citations.
             for card in cards:

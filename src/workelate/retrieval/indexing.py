@@ -6,6 +6,7 @@ from collections import defaultdict
 
 from workelate.memory.store import dump, identity
 from workelate.retrieval.embeddings import EmbeddingError, embedding_client, unit_vector
+from workelate.retrieval.vector_store import sync_vector_store
 from workelate.storage.database import connect_database, transaction
 
 
@@ -18,7 +19,7 @@ def searchable(record):
 def index_records(settings, *, through_day=None, embedder=None):
     from workelate.ingestion.service import database_path
 
-    embedder = embedder or embedding_client(settings.search)
+    embedder = embedder or embedding_client(settings.search, cache_dir=settings.runtime_dir / "models")
     model_key = embedder.key if embedder else "none"
     with connect_database(database_path(settings)) as conn:
         limit = conn.execute("SELECT MAX(day) FROM ingestion_history").fetchone()[0] or 0
@@ -90,6 +91,21 @@ def index_records(settings, *, through_day=None, embedder=None):
                      int((time.monotonic() - started) * 1000), error or "completed"))
         counts = dict(conn.execute("SELECT vector_status,COUNT(*) FROM indexing_status s JOIN records r ON r.id=s.record_id WHERE r.source_day<=? GROUP BY vector_status", (limit,)).fetchall())
         failures = conn.execute("SELECT COUNT(*) FROM indexing_status s JOIN records r ON r.id=s.record_id WHERE r.source_day<=? AND s.fts_status='failed'", (limit,)).fetchone()[0]
-        return {"status": "partial" if failures or counts.get("failed", 0) or counts.get("pending", 0) else "complete",
+        vector_store = sync_vector_store(conn, settings)
+        return {"status": "partial" if failures or counts.get("failed", 0) or counts.get("pending", 0) or vector_store["status"] == "failed" else "complete",
+                "vector_store": vector_store,
                 "fts_completed": conn.execute("SELECT COUNT(*) FROM indexing_status s JOIN records r ON r.id=s.record_id WHERE r.source_day<=? AND s.fts_status='completed'", (limit,)).fetchone()[0],
                 "fts_failed": failures, "vectors_completed": counts.get("completed", 0), "vectors_pending": counts.get("pending", 0), "vectors_failed": counts.get("failed", 0)}
+
+
+def main():
+    """Reindex already ingested records without resetting the run."""
+    from workelate.config import load_settings
+
+    result = index_records(load_settings())
+    print(json.dumps(result))
+    return 0 if result["status"] == "complete" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

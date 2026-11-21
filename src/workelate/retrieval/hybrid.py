@@ -23,7 +23,7 @@ class Retrieved:
     semantic_ids: set[str]
 
 
-def retrieve(conn, question, person_id, time_query, resolution, classification, *, depth=12, query_vector=None, model_key=None, through_day=None):
+def retrieve(conn, question, person_id, time_query, resolution, classification, *, depth=12, query_vector=None, model_key=None, through_day=None, settings=None):
     allowed = {source["id"]: source for source in resolution.records if parse_utc(source["at"]) <= time_query.as_of}
     memory = MemoryRepository(conn, through_day=through_day)
     facts, structured, exact = [], [], []
@@ -42,7 +42,7 @@ def retrieve(conn, question, person_id, time_query, resolution, classification, 
                             structured.extend(observation["source_ids"])
         exact.extend(entity.sources)
     lexical = keyword_search(conn, question + " " + " ".join(entity.name for entity in resolution.entities), person_id, time_query.as_of, limit=depth, through_day=through_day)
-    semantic = vector_search(conn, query_vector, model_key, person_id, time_query.as_of, limit=depth, through_day=through_day) if query_vector is not None else []
+    semantic = vector_search(conn, query_vector, model_key, person_id, time_query.as_of, limit=depth, through_day=through_day, settings=settings) if query_vector is not None else []
     ranked = rrf([(weight, [source for source in ids if source in allowed]) for weight, ids in
                   ((4, structured), (2, exact), (1, lexical), (1, semantic))], depth=depth)
     return Retrieved([allowed[record_id] for record_id in ranked if record_id in allowed], facts, set(semantic))

@@ -119,4 +119,9 @@ def forget_information(person_id, words, settings):
     if path.exists():
         with connect_database(path) as conn, transaction(conn):
             add_request(conn, person_id, words)
+        # External indexes are derived state: synchronize only after SQLite commits.
+        with connect_database(path) as conn:
+            from workelate.retrieval.vector_store import sync_vector_store
+
+            sync_vector_store(conn, settings)
     return {"ok": True}

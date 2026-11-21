@@ -197,7 +197,8 @@ def generate_briefs(person_id, requested_date, settings, *, llm_client=None, pol
             outcome = "deterministic"
             cache_key = identity("brief-v1", person_id, person["org_id"], day.isoformat(), through_day,
                 meeting, previous, normalized_utc(cutoff), preferences,
-                [(item.card.id, item.priority, item.new, item.question) for item in candidates], settings.llm.provider, settings.llm.model)
+                [(item.card.id, item.priority, item.new, item.question) for item in candidates], settings.llm.provider, settings.llm.model,
+                settings.search.vector_backend, settings.search.provider, settings.search.model, settings.search.revision)
             cached = conn.execute("SELECT payload_json FROM brief_cache WHERE cache_key=? AND person_id=?", (cache_key, person_id)).fetchone()
             if cached:
                 payload = json.loads(cached[0])
@@ -211,7 +212,7 @@ def generate_briefs(person_id, requested_date, settings, *, llm_client=None, pol
                 query = (meeting.get("client") or meeting["event_id"]) + " changes decisions blockers deadlines promises"
                 resolution = resolve(conn, person_id, query, cutoff, through_day=through_day)
                 vector, model_key = None, None
-                provider = embedder or embedding_client(settings.search)
+                provider = embedder or embedding_client(settings.search, cache_dir=settings.runtime_dir / "models")
                 eligible_ids = [record["id"] for record in relevant]
                 if provider and len(query.encode()) + 512 <= 8000 and conn.execute("SELECT 1 FROM record_vectors WHERE model_key=? AND record_id IN (SELECT value FROM json_each(?)) LIMIT 1", (provider.key, dump(eligible_ids))).fetchone():
                     embedded = None
@@ -225,7 +226,7 @@ def generate_briefs(person_id, requested_date, settings, *, llm_client=None, pol
                         if embedded is None:
                             meter.add(len(query.encode()) + 32, cost=None, estimated=True)
                 evidence = retrieve(conn, query, person_id, TimeQuery(cutoff, cutoff, parse_utc(previous["start"]) if previous else None),
-                    resolution, Question("changes", None), depth=settings.search.depth, query_vector=vector, model_key=model_key, through_day=through_day)
+                    resolution, Question("changes", None), depth=settings.search.depth, query_vector=vector, model_key=model_key, through_day=through_day, settings=settings)
                 ranks = {record["id"]: rank for rank, record in enumerate(evidence.records)}
                 # Existing importance and personal preferences remain primary.
                 candidates.sort(key=lambda item: (-item.priority, min((ranks.get(source, 1000) for source in item.card.sources), default=1000), item.card.id))
