@@ -13,14 +13,19 @@ from workelate.time_utils import normalized_utc, parse_calendar_date, utc_to_loc
 
 
 class Repository:
-    def __init__(self, connection: sqlite3.Connection):
+    def __init__(self, connection: sqlite3.Connection, *, through_day: int | None = None):
         self._connection = connection
+        self._through_day = through_day
 
     def get_person(self, person_id: str) -> dict | None:
         row = self._connection.execute("SELECT * FROM people WHERE id = ?", (person_id,)).fetchone()
         return dict(row) if row else None
 
     def _records(self, person_id: str, conditions: list[str], params: list) -> list[dict]:
+        conditions, params = list(conditions), list(params)
+        if self._through_day is not None:
+            conditions.append("r.source_day <= ?")
+            params.append(self._through_day)
         query = "SELECT r.raw_json FROM records r JOIN people p ON p.id = ? WHERE " + ACCESS_SQL
         if conditions:
             query += " AND " + " AND ".join(conditions)

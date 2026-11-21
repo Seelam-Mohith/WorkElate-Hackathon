@@ -5,7 +5,9 @@ Restricted authors receive no implicit access.
 """
 
 ACCESS_SQL = """
-r.org_id = p.org_id AND (
+r.org_id = p.org_id AND NOT EXISTS (
+    SELECT 1 FROM forgotten_records forgotten WHERE forgotten.record_id=r.id
+) AND (
     r.visibility = 'team'
     OR (r.visibility = 'private' AND r.author_id = p.id)
     OR (r.visibility = 'restricted' AND EXISTS (
