@@ -1,4 +1,4 @@
-"""Optional embedding provider. No fabricated/hash embeddings or model downloads."""
+"""Lazy local Hugging Face and optional HTTP embedding providers."""
 
 import json
 import math
@@ -6,6 +6,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Protocol
 
 from workelate.reasoning.llm_client import _NoRedirect
@@ -25,20 +26,27 @@ class SearchConfig:
     depth: int = 12
     batch_size: int = 16
     input_rate: float | None = None
+    vector_backend: str = "sqlite"
+    revision: str | None = None
+    device: str = "cpu"
 
     @classmethod
     def from_env(cls, env):
         provider = env.get("WORKELATE_EMBEDDING_PROVIDER", "none")
+        backend = env.get("WORKELATE_VECTOR_BACKEND", "chroma" if provider == "huggingface" else "sqlite")
         timeout = float(env.get("WORKELATE_EMBEDDING_TIMEOUT", "15"))
         depth = int(env.get("WORKELATE_RETRIEVAL_DEPTH", "12"))
         batch = int(env.get("WORKELATE_EMBEDDING_BATCH_SIZE", "16"))
         rate = float(env["WORKELATE_EMBEDDING_INPUT_USD_PER_MILLION"]) if env.get("WORKELATE_EMBEDDING_INPUT_USD_PER_MILLION") else None
-        if provider not in {"none", "openai-compatible"} or not math.isfinite(timeout) or not 0 < timeout <= 60 or not 1 <= depth <= 50 or not 1 <= batch <= 64:
+        if provider not in {"none", "openai-compatible", "huggingface"} or backend not in {"sqlite", "chroma"} or not math.isfinite(timeout) or not 0 < timeout <= 60 or not 1 <= depth <= 50 or not 1 <= batch <= 64:
             raise ValueError("Invalid search configuration")
         if rate is not None and (not math.isfinite(rate) or rate < 0):
             raise ValueError("Invalid embedding rate")
-        return cls(provider, env.get("WORKELATE_EMBEDDING_MODEL", ""), env.get("WORKELATE_EMBEDDING_URL", cls.url),
-                   env.get("WORKELATE_EMBEDDING_API_KEY", ""), timeout, depth, batch, rate)
+        model = env.get("WORKELATE_EMBEDDING_MODEL") or ("sentence-transformers/all-MiniLM-L6-v2" if provider == "huggingface" else "")
+        return cls(provider, model, env.get("WORKELATE_EMBEDDING_URL", cls.url),
+                   env.get("WORKELATE_EMBEDDING_API_KEY", ""), timeout, depth, batch, rate,
+                   backend, env.get("WORKELATE_EMBEDDING_REVISION") or None,
+                   env.get("WORKELATE_EMBEDDING_DEVICE", "cpu"))
 
 
 @dataclass(frozen=True)
@@ -106,5 +114,44 @@ class HTTPEmbedder:
             raise EmbeddingError("embedding_provider_error") from None
 
 
-def embedding_client(config: SearchConfig) -> Embedder | None:
+@lru_cache(maxsize=2)
+def _local_model(model, revision, device, cache_dir):
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer(model, revision=revision, device=device,
+                               cache_folder=cache_dir, trust_remote_code=False)
+
+
+class HuggingFaceEmbedder:
+    def __init__(self, config: SearchConfig, *, cache_dir=None):
+        from workelate.memory.store import identity
+
+        self.config = config
+        self.model = config.model or "sentence-transformers/all-MiniLM-L6-v2"
+        self.key = identity("huggingface", self.model, config.revision, "normalized-v1")
+        self.cache_dir = str(cache_dir) if cache_dir is not None else None
+
+    def embed(self, texts: list[str]) -> EmbeddingResult:
+        if not texts:
+            return EmbeddingResult([], cost_usd=0.0)
+        try:
+            model = _local_model(self.model, self.config.revision, self.config.device, self.cache_dir)
+            encoded = model.encode(texts, batch_size=self.config.batch_size,
+                                   normalize_embeddings=True, convert_to_numpy=True,
+                                   show_progress_bar=False)
+            vectors = [unit_vector(row) for row in encoded.tolist()]
+            if len(vectors) != len(texts) or len({len(row) for row in vectors}) != 1:
+                raise EmbeddingError("invalid_embedding_batch")
+            return EmbeddingResult(vectors, cost_usd=0.0)
+        except ImportError:
+            raise EmbeddingError("huggingface_dependency_missing") from None
+        except EmbeddingError:
+            raise
+        except Exception:
+            raise EmbeddingError("huggingface_embedding_error") from None
+
+
+def embedding_client(config: SearchConfig, *, cache_dir=None) -> Embedder | None:
+    if config.provider == "huggingface":
+        return HuggingFaceEmbedder(config, cache_dir=cache_dir)
     return HTTPEmbedder(config) if config.provider != "none" else None
