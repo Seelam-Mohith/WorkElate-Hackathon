@@ -1,5 +1,31 @@
 # WorkElate design note
 
+## Vector database support
+
+The optional `vector` dependency group adds persistent ChromaDB and local Hugging
+Face Sentence Transformers embeddings. Setting `WORKELATE_EMBEDDING_PROVIDER` to
+`huggingface` selects Chroma by default, with `all-MiniLM-L6-v2` on CPU. The model
+loads lazily and normalized document/query vectors use the same provider and
+revision. Model downloads are cached under the runtime directory.
+
+SQLite remains authoritative for records, ACLs, temporal limits, suppression,
+embedding caches and indexing state. The Chroma adapter stores a derived cosine
+index in the runtime's `chroma/` directory, in collections separated by model key.
+Each vector ID includes the source ID, model key and content hash. Before a query,
+SQLite selects exactly the accessible, non-forgotten vector IDs within the time
+and ingestion-day cutoff; Chroma searches only those IDs. Answers and meeting
+briefs pass the configured backend through the same hybrid retrieval pipeline.
+
+Index synchronization runs after committed ingestion/indexing and explicit forget
+operations. It removes stale/reset/suppressed vectors and backfills missing
+vectors from SQLite without another model call. The two stores are not atomic;
+failures are reported and retries reconcile the derived index. Reads continue
+enforcing SQLite authorization even if Chroma cleanup is unavailable. The command
+`python -m workelate.retrieval.indexing` migrates existing caches and repairs the
+index without resetting the run. The original SQLite-only mode remains supported.
+
+## Existing data model
+
 The submission command is `assist`. One local SQLite database holds immutable
 source records, sourced observations, search representations, feedback events,
 suppression markers, and usage audits. Each CLI invocation opens that database;

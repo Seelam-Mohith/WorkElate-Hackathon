@@ -1,6 +1,7 @@
 # WorkElate - Final Python CLI
 
-WorkElate ingests workplace records into local SQLite, answers grounded questions,
+WorkElate ingests workplace records into local SQLite, supports Chroma vector search
+with local Hugging Face embeddings, answers grounded questions,
 generates meeting briefs, learns from delayed feedback, and forgets owned information.
 All four official commands work across separate processes. A local JSON API and a Streamlit test UI are included for manual testing.
 The organizer pack in `BuildSprint-R3-candidate/` is not modified.
@@ -34,6 +35,55 @@ assist --help
 The submission command is `assist`, or equivalently `python -m workelate.cli`.
 Both entry points work outside this repository after installation. Set absolute pack
 and runtime paths when changing directories. Windows timezone data is installed automatically.
+
+## ChromaDB and Hugging Face embeddings
+
+Install the vector dependencies and enable local semantic search in the same shell
+used to start the CLI or API:
+
+```powershell
+python -m pip install -e ".[dev,vector]"
+$env:WORKELATE_EMBEDDING_PROVIDER = 'huggingface'
+$env:WORKELATE_EMBEDDING_MODEL = 'sentence-transformers/all-MiniLM-L6-v2'
+$env:WORKELATE_VECTOR_BACKEND = 'chroma'
+```
+
+For Bash, use `export NAME=value` for the same three variables. The Hugging Face
+provider selects Chroma automatically unless `WORKELATE_VECTOR_BACKEND` overrides
+it. No embedding API key or Chroma server is needed. The first embedding request
+downloads the model into `WORKELATE_RUNTIME_DIR/models`; later requests reuse it.
+Set `WORKELATE_EMBEDDING_REVISION` to a model commit to pin the weights and
+`WORKELATE_EMBEDDING_DEVICE` to choose a device (default `cpu`). Model code from
+the Hub is never trusted for execution.
+
+For a new run, use `assist ingest --day 1` as usual. To add vectors to an existing
+SQLite database **without resetting its records**, run:
+
+```powershell
+python -m workelate.retrieval.indexing
+```
+
+This command indexes all already ingested days, prints indexing status as JSON,
+and exits 1 if indexing is partial. Ingestion also updates Chroma automatically.
+The local API and meeting briefs use the same configured backend.
+
+SQLite remains the source of records, permissions, timelines, FTS5, and cached
+embeddings. Chroma persists its cosine index in `WORKELATE_RUNTIME_DIR/chroma`,
+with separate collections per embedding model/revision. Retrieval first obtains
+authorized, time-bounded vector IDs from SQLite, then passes those IDs to Chroma
+before nearest-neighbor search. Chroma stores vectors and record IDs, without
+another copy of document text. Provider/backend changes can reuse matching cached
+vectors; changing the model generates separate embeddings.
+
+Reset and forget operations reconcile the Chroma index after SQLite commits.
+If Chroma is unavailable, keyword/structured retrieval continues; SQLite prevents
+stale or forgotten vectors from being retrieved. A failed synchronization is
+reported in `indexing.vector_store` and retried on the next ingestion or reindex.
+Rerun the indexing command after restoring Chroma to complete pending cleanup.
+SQLite and Chroma do not share a transaction.
+
+The original offline mode remains available with
+`WORKELATE_EMBEDDING_PROVIDER=none` and `WORKELATE_VECTOR_BACKEND=sqlite`.
 
 ## CLI examples
 
@@ -70,8 +120,11 @@ in `open_these[].why`, without adding a nonstandard summary field.
 | `WORKELATE_LLM_MAX_SOURCE_CHARS` | 16000; oversized semantic sources stay pending |
 | `WORKELATE_LLM_INPUT_USD_PER_MILLION` | Optional input price for cost estimates |
 | `WORKELATE_LLM_OUTPUT_USD_PER_MILLION` | Optional output price for cost estimates |
-| `WORKELATE_EMBEDDING_PROVIDER` | `none` or `openai-compatible` |
-| `WORKELATE_EMBEDDING_MODEL` | Empty; your deployed embedding model name |
+| `WORKELATE_EMBEDDING_PROVIDER` | `none` (default), `huggingface`, or `openai-compatible` |
+| `WORKELATE_EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` for Hugging Face; otherwise empty |
+| `WORKELATE_VECTOR_BACKEND` | `chroma` for Hugging Face; otherwise `sqlite` |
+| `WORKELATE_EMBEDDING_REVISION` | Optional Hugging Face model revision; part of cache identity |
+| `WORKELATE_EMBEDDING_DEVICE` | `cpu`; local Hugging Face inference device |
 | `WORKELATE_EMBEDDING_URL` | `https://api.openai.com/v1/embeddings`; compatible endpoint |
 | `WORKELATE_EMBEDDING_API_KEY` | Empty; embedding provider credential |
 | `WORKELATE_EMBEDDING_TIMEOUT` | 15 seconds, maximum 60 |
@@ -82,7 +135,8 @@ in `open_these[].why`, without adding a nonstandard summary field.
 For semantic extraction and general language understanding, configure your chosen
 Chat Completions-compatible provider, model, endpoint and credentials. Configure
 embeddings independently. HTTPS is required except for loopback HTTP endpoints;
-redirects are rejected. No SDK or model download is needed. For example, in PowerShell:
+redirects are rejected. HTTP providers need no SDK or local model download.
+For example, in PowerShell:
 
 ```powershell
 $env:WORKELATE_LLM_PROVIDER = 'openai-compatible'
@@ -111,8 +165,9 @@ No live paid model has been validated in this environment.
   additive migrations, bounded timestamps, sanitized errors, and injection quarantine.
 - `memory/`: sourced facts, task transitions, meeting/artifact history, commitments,
   explicit deliveries, and optional single-record semantic extraction.
-- `retrieval/`: durable FTS5, permission-scoped BM25 statistics, optional cached
-  embeddings/cosine search, entity resolution, and weighted reciprocal rank fusion.
+- `retrieval/`: durable FTS5, permission-scoped BM25 statistics, cached Hugging Face
+  or HTTP embeddings, Chroma or SQLite cosine search, entity resolution, and
+  weighted reciprocal rank fusion.
 - `reasoning/`: deterministic answers and optional model selection from verified
   evidence cards. Models cannot invent final answer text, source IDs, or tool actions.
 - `briefs/`: local-date meeting selection, previous attended client meeting,

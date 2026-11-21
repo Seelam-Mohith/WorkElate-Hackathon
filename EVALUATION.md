@@ -1,5 +1,26 @@
 # Stage 6 evaluation and validation
 
+## Vector database validation
+
+The Chroma/Hugging Face extension preserves the original evaluation below. The
+regression suite passed 353 tests, followed by 8 passing vector integration/provider
+tests (including the additional answer/brief routing test). The Chroma tests use a
+real persistent local database and deterministic test embeddings; provider unit
+tests substitute the model loader to keep the suite offline. Coverage includes
+SQLite-cache backfill, ACL/time/day restrictions, model dimension separation,
+forget/reset cleanup, stale-index denial, failure recovery, and answer/brief routing.
+
+A live local smoke check with `sentence-transformers/all-MiniLM-L6-v2` produced
+384-dimensional embeddings. Reindexing the existing `.workelate/` SQLite database
+then completed 1,592 vectors in Chroma with zero failed or pending vectors. A
+separate process reopened the persisted index and returned 12 semantic hits.
+The model ran locally; no source text was sent to an embedding API.
+
+Enable this extension with the `vector` dependency group and the settings in the
+README; the historical scores below used neither Chroma nor Hugging Face.
+
+## Original challenge evaluation
+
 Official tools: unmodified `BuildSprint-R3-candidate/tools/run_days.py` and `score.py`.
 Days: 1-5. Command: `assist`. Chat provider: `none`. Embedding provider: `none`.
 Runtime: `.workelate/stage6-final/`. Outputs: `runs/mine/` (ignored by Git).
