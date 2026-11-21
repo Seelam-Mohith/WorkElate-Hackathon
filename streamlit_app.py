@@ -150,6 +150,12 @@ with st.sidebar:
             st.success("Backend is healthy")
         except ApiError as exc:
             show_error(exc)
+    st.divider()
+    st.subheader("Project stack")
+    st.caption("Frontend: Streamlit")
+    st.caption("Backend: Python JSON API")
+    st.caption("Database: SQLite")
+    st.caption("Vector DB: ChromaDB / SQLite")
 
 ingest_tab, brief_tab, ask_tab, forget_tab = st.tabs(["Ingest", "Brief", "Ask", "Forget"])
 
