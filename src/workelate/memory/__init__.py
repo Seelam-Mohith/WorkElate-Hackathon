@@ -1,1 +1,1 @@
-"""Reserved for persistent assistant memory."""
+"""Evidence-backed observations, temporal views, commitments, and meeting context."""
