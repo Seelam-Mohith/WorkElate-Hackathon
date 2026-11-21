@@ -156,6 +156,9 @@ with st.sidebar:
     st.caption("Backend: Python JSON API")
     st.caption("Database: SQLite")
     st.caption("Vector DB: ChromaDB / SQLite")
+    st.caption("Keyword search: SQLite FTS5")
+    st.caption("Embeddings: Hugging Face (all-MiniLM-L6-v2)")
+    st.caption("LLMs: OpenAI-compatible")
 
 ingest_tab, brief_tab, ask_tab, forget_tab = st.tabs(["Ingest", "Brief", "Ask", "Forget"])
 
