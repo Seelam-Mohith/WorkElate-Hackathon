@@ -164,10 +164,19 @@ with ingest_tab:
         except ApiError as exc:
             show_error(exc)
     st.divider()
-    st.caption("Convenience: reset and load all five days in order.")
-    if st.button("Ingest days 1–5"):
-        progress = st.progress(0)
-        for value in range(1, 6):
+    st.caption("Convenience: ingest any range of days in order (day 1 resets the run).")
+    first_day, last_day = st.columns(2)
+    with first_day:
+        start_day = st.number_input("From day", min_value=1, value=1, step=1, key="ingest_start_day")
+    with last_day:
+        end_day = st.number_input("To day", min_value=1, value=5, step=1, key="ingest_end_day")
+    st.caption("Days beyond the included pack need their own day-NN.jsonl source files.")
+    if end_day < start_day:
+        st.error("To day must be greater than or equal to From day.")
+    elif st.button(f"Ingest days {start_day}–{end_day}"):
+        total = end_day - start_day + 1
+        progress = st.progress(0.0)
+        for value in range(start_day, end_day + 1):
             try:
                 result = api_post("/api/ingest", {"day": value})
                 clear_outputs()
@@ -175,7 +184,7 @@ with ingest_tab:
             except ApiError as exc:
                 show_error(exc)
                 break
-            progress.progress(value / 5)
+            progress.progress((value - start_day + 1) / total)
 
 try:
     people = api_get("/api/people")
