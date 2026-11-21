@@ -7,3 +7,5 @@ __pycache__/
 runs/
 dist/
 build/
+node_modules/
+.env.ps1

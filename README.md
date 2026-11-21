@@ -1,16 +1,13 @@
-# WorkElate — Stage 2
+# WorkElate - Final Python CLI
 
-WorkElate is a Python CLI foundation for a workplace assistant that will eventually
-remember workplace changes and generate grounded meeting briefs and answers.
-Stage 1 established packaging, argument validation, configuration, and logging.
-Stage 2 adds real daily ingestion, local SQLite persistence, source validation,
-and permission-filtered database access. Brief, ask, and forget remain unchanged
-Stage 1 placeholders. There are no AI calls or extracted facts.
+WorkElate ingests workplace records into local SQLite, answers grounded questions,
+generates meeting briefs, learns from delayed feedback, and forgets owned information.
+All four official commands work across separate processes. A local JSON API and a Streamlit test UI are included for manual testing.
+The organizer pack in `BuildSprint-R3-candidate/` is not modified.
 
-Requires Python 3.11 or later. The original challenge pack, including its README,
-data, answers, and tools, remains untouched in `BuildSprint-R3-candidate/`.
+## Setup
 
-## Install
+Requires Python 3.11+, SQLite with FTS5, and a writable local runtime directory.
 
 Windows PowerShell:
 
@@ -19,215 +16,206 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
 $env:R3_PACK = (Resolve-Path .\BuildSprint-R3-candidate).Path
+$env:WORKELATE_RUNTIME_DIR = Join-Path (Get-Location) '.workelate'
+assist --help
 ```
 
-Linux:
+Linux/macOS:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
 export R3_PACK="$PWD/BuildSprint-R3-candidate"
+export WORKELATE_RUNTIME_DIR="$PWD/.workelate"
+assist --help
 ```
 
-Activation is optional when using the virtual environment's Python or executable
-directly. Once installed, both entry points work from another directory.
+The submission command is `assist`, or equivalently `python -m workelate.cli`.
+Both entry points work outside this repository after installation. Set absolute pack
+and runtime paths when changing directories. Windows timezone data is installed automatically.
 
-## Commands
+## CLI examples
 
 ```bash
 assist ingest --day 1
 assist ingest --day 2
 assist ingest --day 3
-assist brief --person p02 --date 2026-11-03
-assist ask --person p02 --at 2026-11-04T18:00:00Z --ask "Who owns billing?"
-assist forget --person p02 --what "my travel preference"
-python -m workelate.cli ingest --day 1
-assist --help
+assist brief --person p02 --date 2026-11-05
+assist ask --person p02 --at 2026-11-04T18:00:00Z --ask "Who owns billing for NB?"
+assist forget --person p02 --what "Forget my preference about meeting briefs"
 ```
 
-Dates must be `YYYY-MM-DD`. Timestamps must include date, `T`, hours, minutes,
-seconds, and UTC `Z` or `+00:00`; fractional seconds are accepted. Person IDs,
-questions, and forget requests must be nonempty. IDs are not restricted to today's
-known people. The schema layer preserves the full question as a single string,
-removing only leading and trailing whitespace.
-
-Every invocation writes exactly one deterministic JSON value to stdout, including
-help and expected errors. Logs and concise diagnostics go to stderr. Errors never
-echo argument values, private contents, exception details, or tracebacks.
-
-| Exit | Meaning |
-| --- | --- |
-| 0 | Ingestion completed successfully, or help displayed as a JSON object |
-| 1 | Unexpected internal error; sanitized JSON error |
-| 2 | Invalid arguments or configuration; JSON error |
-| 3 | Valid invocation of a Stage 1 operation that is not implemented |
-| 4 | Ingestion failure; structured JSON error with safe source location when available |
-
-`ingest` returns actual processed counts, for example:
-
-```json
-{"day":1,"feedback_processed":0,"ok":true,"records_processed":354}
-```
-
-`forget` still returns `{"error":"not_implemented","command":"forget"}`.
-`brief` returns `[]` with exit 3 and a stderr warning: this is a list-shaped
-placeholder, not a claim that no meetings exist. `ask` returns the official fields
-`answer`, `matched`, `clarify`, `refused`, and `usage`. Its answer explicitly says
-question answering is not implemented, with empty citations and matches, null
-clarify/refused, and zero usage. It contains no workplace answer or mock AI output.
-Zero milliseconds represents no model work; no cost or tokens are consumed.
-Placeholders live in `placeholders.py`, separate from parsing and validation;
-ingestion is dispatched to the independently reusable `ingestion.service.ingest_day`.
+Every invocation prints exactly one JSON value to stdout. Logs and sanitized diagnostics
+go to stderr. Successful commands exit 0; argument/configuration errors exit 2,
+ingestion failures exit 4, and unexpected internal failures exit 1. Help is JSON too.
+Ask/brief follow the exact official fields; forget returns exactly `{"ok": true}`.
+A person with no authorized meetings receives `[]`. An unchanged meeting has
+`status: "nothing_new"`, empty lists, and a null question. Meeting purpose appears
+in `open_these[].why`, without adding a nonstandard summary field.
 
 ## Configuration
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `R3_PACK` | Current working directory | Challenge pack root |
-| `WORKELATE_RUNTIME_DIR` | `.workelate` in current working directory | Local runtime directory; contains `workelate.sqlite3` |
-| `WORKELATE_LOG_LEVEL` | `WARNING` | DEBUG, INFO, WARNING, ERROR, or CRITICAL |
+| Variable | Default / purpose |
+| --- | --- |
+| `R3_PACK` | Current directory; challenge pack root |
+| `WORKELATE_RUNTIME_DIR` | `.workelate` in current directory; SQLite and local state |
+| `WORKELATE_LOG_LEVEL` | `WARNING`; DEBUG, INFO, WARNING, ERROR, CRITICAL |
+| `WORKELATE_LLM_PROVIDER` | `none` or `openai-compatible` |
+| `WORKELATE_LLM_MODEL` | Empty; your deployed chat model name |
+| `WORKELATE_LLM_URL` | `https://api.openai.com/v1/chat/completions`; compatible endpoint |
+| `WORKELATE_LLM_API_KEY` | Empty; provider credential, never logged |
+| `WORKELATE_LLM_TIMEOUT` | 30 seconds, maximum 120 |
+| `WORKELATE_LLM_ATTEMPTS` | 2; extraction retries, maximum 3 |
+| `WORKELATE_LLM_MAX_SOURCE_CHARS` | 16000; oversized semantic sources stay pending |
+| `WORKELATE_LLM_INPUT_USD_PER_MILLION` | Optional input price for cost estimates |
+| `WORKELATE_LLM_OUTPUT_USD_PER_MILLION` | Optional output price for cost estimates |
+| `WORKELATE_EMBEDDING_PROVIDER` | `none` or `openai-compatible` |
+| `WORKELATE_EMBEDDING_MODEL` | Empty; your deployed embedding model name |
+| `WORKELATE_EMBEDDING_URL` | `https://api.openai.com/v1/embeddings`; compatible endpoint |
+| `WORKELATE_EMBEDDING_API_KEY` | Empty; embedding provider credential |
+| `WORKELATE_EMBEDDING_TIMEOUT` | 15 seconds, maximum 60 |
+| `WORKELATE_EMBEDDING_BATCH_SIZE` | 16, maximum 64; same-permission batches |
+| `WORKELATE_EMBEDDING_INPUT_USD_PER_MILLION` | Optional embedding input price |
+| `WORKELATE_RETRIEVAL_DEPTH` | 12, maximum 50 |
 
-Paths expand `~` and resolve relative to the current working directory. Ingestion
-creates the runtime directory and SQLite schema automatically. Configuration loading
-and the other commands do not create state. To reuse a database when changing
-working directories, set `WORKELATE_RUNTIME_DIR` to the same absolute path.
-Runtime paths inside the pack's `data/`, `answers/`, or `tools/` are rejected.
-No API key is needed. Timezone support uses `zoneinfo`;
-the small `tzdata` dependency supplies IANA timezone data on Windows.
+For semantic extraction and general language understanding, configure your chosen
+Chat Completions-compatible provider, model, endpoint and credentials. Configure
+embeddings independently. HTTPS is required except for loopback HTTP endpoints;
+redirects are rejected. No SDK or model download is needed. For example, in PowerShell:
 
-## Tests
+```powershell
+$env:WORKELATE_LLM_PROVIDER = 'openai-compatible'
+$env:WORKELATE_LLM_MODEL = '<your-deployed-model>'
+$env:WORKELATE_LLM_URL = '<your-compatible-HTTPS-chat-endpoint>'
+$env:WORKELATE_LLM_API_KEY = '<your-key>'
+$env:WORKELATE_EMBEDDING_PROVIDER = 'openai-compatible'
+$env:WORKELATE_EMBEDDING_MODEL = '<your-embedding-model>'
+$env:WORKELATE_EMBEDDING_URL = '<your-compatible-HTTPS-embedding-endpoint>'
+$env:WORKELATE_EMBEDDING_API_KEY = '<your-key>'
+```
+
+No model is configured by default. The supplied-days evaluation uses `none` for both
+providers, so its model tokens and cost are actually zero. General extraction remains
+explicitly pending in that mode. Narrow, evidenced send/share promises, explicit
+Hinglish deadline patterns, structured fields, dates, and business labels have conservative
+fallbacks. This is not a substitute for the challenge's requested LLM language capability;
+configure and declare the actual model/endpoint before a model-backed submission.
+No live paid model has been validated in this environment.
+
+## Architecture and persistence
+
+- `ingestion/`: transactional metadata and immutable raw records, sequential days,
+  source validation, canonical duplicate detection, and delayed feedback ingestion.
+- `storage/` and `privacy/`: shared organization/visibility/suppression predicates,
+  additive migrations, bounded timestamps, sanitized errors, and injection quarantine.
+- `memory/`: sourced facts, task transitions, meeting/artifact history, commitments,
+  explicit deliveries, and optional single-record semantic extraction.
+- `retrieval/`: durable FTS5, permission-scoped BM25 statistics, optional cached
+  embeddings/cosine search, entity resolution, and weighted reciprocal rank fusion.
+- `reasoning/`: deterministic answers and optional model selection from verified
+  evidence cards. Models cannot invent final answer text, source IDs, or tool actions.
+- `briefs/`: local-date meeting selection, previous attended client meeting,
+  changes/decisions/blockers/deadlines, pending promises, historical context, and caching.
+- `feedback/`: one-day availability, personal preferences/verdicts/corrections,
+  original evidence preservation, idempotence, and persistent usage/status records.
+- `forgetting/`: owner-authorized suppression rules, removal of personal derived
+  corrections/preferences/verdicts, search cleanup, and cache invalidation.
+
+The database is `WORKELATE_RUNTIME_DIR/workelate.sqlite3`. Five additive migrations
+preserve earlier source/history tables. Day 1 atomically resets the entire challenge
+run, including suppression markers; later-day retries preserve them. Failed ingestion
+or forget transactions roll back. Future day/feedback files and answer keys are never
+opened by application code. Runtime directories inside pack data/answers/tools are rejected.
+
+## Security, time and feedback
+
+Team records are available only within their organization; private records only to
+their author; restricted records only to listed same-organization readers. Restricted
+authors receive no implicit access. Every supporting source is checked before fact
+resolution, retrieval, citations and model prompts. Ingestion is a trusted offline
+operation: semantic extraction handles one source at a time and embedding batches
+share organization and permission scope. The CLI trusts `--person` as the harness's
+requester identity; this local submission is not a multi-user authentication service.
+
+Ask uses UTC `--at`, the person's timezone, effective/observation timestamps, and the
+corresponding ingested source-day bound. Historical questions also bound facts to the
+requested historical date. Briefs for day N+1 use at most day N sources and exclude
+records recorded after the meeting, even during later replay. Authorized late UTC
+records in a preparation file are retained. No wall-clock time decides challenge facts.
+
+Feedback from day N arrives only during ingest N+1. Forget feedback is applied before
+extraction; other feedback follows memory extraction. Corrections require supported
+known identities, an authorized attended client meeting, and a verifiable prior value.
+They affect the author's personal view, preserve history and raw evidence, and are
+labelled `Your correction:`. Their original source citations anchor the prior claim
+and meeting context; they are not represented as originally asserting the replacement.
+Invalid or unsafe interpretations are rejected; unsupported language stays pending.
+Preferences and `kept`/`ignored` verdicts affect personal relevance without changing access.
+
+Obvious embedded assistant-control instructions are quarantined from extraction,
+answer evidence and citations. Remaining source text is untrusted JSON data under
+fixed system instructions. Schema/provenance checks and exact claim selection enforce
+output boundaries. No model receives tools, credentials or filesystem access.
+
+## Forget behavior
+
+Supported requests name a topic or record ID in information the requester authored,
+or explicitly target their preferences, corrections, or verdicts. Topic words match
+case-insensitively with simple plural normalization; quoted/named phrases can narrow
+requests. Generic "forget" alone does nothing. "Forget all my preferences" clears
+personal preference events; a topic request preserves unrelated records and memories.
+The same ownership and visibility checks apply even when a record ID is supplied.
+Another person's statements cannot be forgotten by the requester.
+
+Suppression is persistent and applies to historical reads too. Markers prevent retry,
+reindexing and later same-author copies on the forgotten topic from resurfacing. FTS,
+vectors, relevant embedding cache entries and affected brief caches are removed.
+Personal correction facts and preference/verdict events are deleted. Unrelated users'
+feedback and other organizations remain intact. The response does not reveal whether
+a target exists. Unknown people or unmatched requests return the same official success
+shape. Unsupported semantic paraphrases may match nothing; no broad deletion is inferred.
+
+This implements suppression, not secure erasure: original immutable raw workplace and
+feedback JSON remains locally retained behind suppression markers, as do the original
+pack files. Do not treat the SQLite file as a redacted export. Rule markers contain
+hashed topic tokens rather than original request text. A Day 1 reset starts a fresh run.
+
+## Usage and limits
+
+Ask preflights at most 4,000 cumulative input tokens; each meeting brief at most 8,000,
+including query embeddings and all system/schema/evidence framing. UTF-8 byte counts
+plus framing headroom provide conservative preflight bounds. Provider-reported token
+counts are used when returned; missing counts use conservative UTF-8 bounds rather than
+pretending they are provider measurements. Ask/brief audit rows identify estimated usage.
+Reported costs or configured rates are used; unavailable costs stay null. Invalid model
+responses retain their usage. Cache hits and no-model calls report zero tokens/cost.
+Ingestion extraction/indexing and feedback have separate persisted usage statistics.
+
+## Evaluation and tests
+
+From the repository root with the virtual environment active:
 
 ```bash
 python -m pytest -q
-```
-
-Tests run both installed entry points from temporary directories, validate command
-inputs and JSON output, check configuration, imports, timezone availability,
-logging isolation, safe failures, and absence of side effects in placeholder commands.
-Independent fixture packs cover all eight record types, metadata synchronization,
-raw JSON preservation, historical versions, duplicate conflicts, transactional reset,
-rollback, delayed feedback, restricted readers, cross-organization isolation, UTC
-query bounds, and local meeting dates. SQLite persists across subprocess calls.
-Runtime dependencies are Pydantic 2 and Windows-only tzdata; pytest is a development
-dependency. No web framework, model SDK, embeddings, or vector database is installed.
-
-## Daily ingestion and persistence
-
-`ingest_day(day, settings)` opens the local SQLite database with foreign keys enabled
-and starts an immediate transaction. It synchronizes organization, people, and client
-metadata, streams and validates `data/days/day-NN.jsonl`, stores immutable records
-and restricted-reader relationships, and ingests `data/feedback/day-(N-1).jsonl`
-only for N > 1. It records completion and commits everything together. Failures
-roll back all changes for the day, including metadata and any Day 1 reset.
-
-Day 1 starts a fresh run by clearing this application's tables inside the transaction.
-A failed reset leaves the previous run intact. No runtime directory is recursively
-deleted. Day N > 1 requires a completed Day N-1; gaps return
-`previous_day_not_ingested`. Reprocessing a later day is supported. Records keep
-their first source day/line; a duplicate ID with identical JSON content is accepted
-without inserting another row. Conflicting content returns `conflicting_record_id`
-and rolls back the day. Reordered object keys and formatting do not create conflicts.
-Counts report validated source entries processed, including identical duplicates,
-rather than only newly inserted rows.
-
-Metadata files, the requested records file, and previous-day feedback for N > 1
-are required. Feedback files may be empty. Missing files return
-`missing_source_file`; invalid JSON or validation failures identify a filename and,
-for JSONL, a physical line where available. Source contents and database exception
-details never appear in CLI diagnostics. Blank JSONL lines are ignored; duplicate
-JSON keys, non-finite numbers, and malformed records are rejected.
-
-Each complete source object is preserved in `raw_json`, including unknown fields,
-original timestamps, and type-specific history. Source JSONL text is retained apart
-from its line ending. Common fields are mandatory. Mail subject/recipients, chat
-channel, notification recipients, and person team are optional. Document, sheet,
-task, event, and note fields follow the official structured format. External authors,
-`system`, and null clients are accepted. Organization/client/reader/feedback-person
-references must exist in metadata. An empty restricted-reader list grants no access.
-
-Feedback stores source day, physical line, and SHA-256 of canonical JSON. Reprocessing
-the same line is idempotent; changed content at an existing source position returns
-`conflicting_feedback`. Identical feedback on distinct source lines is preserved.
-Corrections, preferences, verdicts, and forget requests are stored without applying
-them. Source files are treated as immutable historical input. Ingestion never opens
-task files, answer files, or future record/feedback files.
-
-## Database schema and access
-
-The complete executable DDL is in `src/workelate/storage/schema.py`.
-
-| Table | Columns |
-| --- | --- |
-| `organizations` | `id` PK, `name` |
-| `people` | `id` PK, `org_id` FK, `name`, `role`, nullable `team`, `timezone` |
-| `clients` | `id` PK, `name` |
-| `records` | `id` PK, `org_id` FK, `record_type`, normalized `occurred_at`, `original_at`, `author_id`, nullable `client_id` FK, `visibility`, `body`, `source_day`, `source_line`, `raw_json` |
-| `record_readers` | `record_id` FK, `person_id` FK; composite PK |
-| `feedback` | `id` integer PK, `source_day`, `source_line`, `fingerprint`, `person_id` FK, `feedback_type`, `words`, nullable `meeting_id`/`topic`/`verdict`, `raw_json`; unique source day/line |
-| `ingestion_history` | `day` PK, `status`, `records_processed`, `feedback_processed`, `completed_at` |
-
-IDs, dates, timestamps, JSON, and source text use SQLite TEXT; days, source lines,
-and counts use INTEGER. Visibility, record/feedback types, positive source positions,
-and completed history status have CHECK constraints. Foreign keys protect references.
-Authors have no people FK because external addresses and system are valid.
-Indexes support organization/time, organization/client/time, organization/type,
-reader, person-organization, and person-feedback lookups.
-
-Privileged ingestion lives in `ingestion/service.py`. User-facing record access
-lives in `storage/repository.py`, using the shared SQL predicate in
-`privacy/access.py`. Every record query requires a requesting person and applies
-organization isolation before returning JSON: team records allow same-org people,
-private records allow their author only, restricted records allow listed readers
-only. Restricted authors gain no implicit access, and cross-org readers gain none.
-Unknown people receive no records. `get_person` returns directory metadata only.
-
-Example for trusted application code:
-
-```python
-from workelate.config import load_settings
-from workelate.ingestion.service import database_path
-from workelate.storage.database import connect_database
-from workelate.storage.repository import Repository
-
-with connect_database(database_path(load_settings()), read_only=True) as connection:
-    repository = Repository(connection)
-    records = repository.get_records_for_client(
-        "p02", "northbeam", until="2026-11-04T18:00:00Z"
-    )
-    meetings = repository.get_events_for_person("p02", date="2026-11-05")
-```
-
-Repository results are original source objects, not generated answers or briefs.
-Time bounds are inclusive and normalized to UTC with fixed microsecond precision.
-`time_utils.py` provides timezone-aware UTC parsing and conversion to a person's
-local calendar date using IANA zones, including daylight saving. Source UTC dates
-are never assumed to equal the local day-file date. Meeting filtering uses attendees
-and each person's local date. Ingestion timestamp fractions support up to six digits;
-the original source string remains intact.
-
-## Harness compatibility and limitations
-
-The official README, DATA_FORMAT, `tools/run_days.py`, and baseline were read before
-implementation. The harness splits `--cmd` using `shlex.split`, executes without a
-shell, adds command arguments, retains its current working directory, and starts a
-fresh process for each call. Quote executable paths containing spaces; `assist`
-must be on PATH when supplied as the command. Set `R3_PACK` explicitly when running
-outside the pack: the harness has a script-location fallback, while this CLI follows
-the documented current-directory fallback.
-
-Eventually the installed command can be used as follows:
-
-```bash
 python BuildSprint-R3-candidate/tools/run_days.py --cmd "assist" --days 1-5 --out runs/mine
+python BuildSprint-R3-candidate/tools/score.py --run runs/mine --days 1-5
 ```
 
-Ingestion now meets the harness success contract. Brief, ask, and forget still exit
-3, which the harness records as failure even though their JSON parses. Stage 2 does
-not pass or claim to pass the full official evaluation. The full Days 1–5 challenge
-pack is available; hidden Days 6–15 are not distributed.
+Set `R3_PACK` and a dedicated `WORKELATE_RUNTIME_DIR` first. These are the unmodified
+official tools; paths include the pack prefix because the application lives above it.
+The harness runs each command in a new process and stores outputs plus `log.jsonl`;
+the scorer writes `runs/mine/score.json`. Run artifacts are ignored by Git. The official
+harness logs request arguments, so keep those artifacts private if using sensitive inputs.
 
-Only Stage 2 was added. There is no LLM integration, embeddings, semantic/RAG retrieval,
-entity resolution, extraction, generated brief/answer, feedback-based memory update,
-actual forgetting, API server, or React dashboard. The existing placeholder wording
-still references Stage 1 to preserve its interface. No Stage 3 work is implemented.
+See [EVALUATION.md](EVALUATION.md) for actual scores, failures and validation scope,
+and [DESIGN.md](DESIGN.md) for the submission design note. Unit/integration tests cover
+all record types, migrations, CLI processes, privacy, timezones, future-day leakage,
+prompt boundaries, corrections, forgetting, replay, rollback and usage. Provider tests
+use mocks. Hidden days 6-15 are unavailable; the five-day scorer cannot grade improvement
+over six or more days or the human design-note component.
+
+Known limitations include constrained language patterns without a provider, conservative
+identity/geographic clarification, exact deliverable matching for promise completion,
+whole-record suppression when a topic matches an owned record, and no secure deletion
+of raw archives. Semantic model quality/latency depends on the chosen provider.
