@@ -82,7 +82,7 @@ def date_options(person):
     return person_date_options[person]
 
 
-def mapped_date_picker(label, dates, person, section):
+def mapped_date_picker(label, dates, person, section, empty_message="No available dates for this person"):
     key = f"{section}_date"
     mapped_person = f"{section}_date_person"
     # Reset on every person change, including returning to someone selected
@@ -91,8 +91,11 @@ def mapped_date_picker(label, dates, person, section):
         st.session_state[key] = dates[-1] if dates else None
         st.session_state[mapped_person] = person
         st.session_state.pop(f"{section}_output", None)
+    if not dates:
+        st.info(empty_message)
+        return None
     return st.selectbox(label, options=dates, index=None,
-                        placeholder="No available dates for this person", key=key)
+                        placeholder=empty_message, key=key)
 
 
 def clear_outputs():
@@ -193,8 +196,10 @@ with brief_tab:
     st.header("Brief")
     person = person_picker(people, "brief_person")
     dates = date_options(person)
-    meeting_date = mapped_date_picker("Meeting date", dates["brief_dates"], person, "brief")
-    st.caption("Meeting dates in " + (dates["timezone"] or "the selected person's timezone"))
+    meeting_date = mapped_date_picker("Meeting date", dates["brief_dates"], person, "brief",
+                                      empty_message="No meets available" if person else "No available dates for this person")
+    if dates["brief_dates"]:
+        st.caption("Meeting dates in " + (dates["timezone"] or "the selected person's timezone"))
     pretty = st.checkbox("LLM-polished paragraph", value=True, key="brief_pretty")
     brief_context = (person, meeting_date, pretty)
     if st.button("Generate brief", type="primary", disabled=not person or not meeting_date):
