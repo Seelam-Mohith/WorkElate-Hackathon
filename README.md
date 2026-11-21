@@ -270,6 +270,14 @@ prompt boundaries, corrections, forgetting, replay, rollback and usage. Provider
 use mocks. Hidden days 6-15 are unavailable; the five-day scorer cannot grade improvement
 over six or more days or the human design-note component.
 
+<img width="1901" height="883" alt="image" src="https://github.com/user-attachments/assets/b6638b40-7e16-4102-b1c1-bc98b5f2a898" />
+<img width="1510" height="773" alt="image" src="https://github.com/user-attachments/assets/f93d7287-6966-4abe-a4a4-3a4607e65003" />
+<img width="1515" height="843" alt="image" src="https://github.com/user-attachments/assets/da209c93-f353-4840-a35f-e44b52d6bfd8" />
+<img width="1538" height="695" alt="image" src="https://github.com/user-attachments/assets/c79619df-6261-486b-9454-c204dd4a9acb" />
+
+
+
+
 Known limitations include constrained language patterns without a provider, conservative
 identity/geographic clarification, exact deliverable matching for promise completion,
 whole-record suppression when a topic matches an owned record, and no secure deletion
