@@ -28,7 +28,9 @@ def snapshot(pack):
 
 
 def test_metadata_and_database_initialization(pack):
-    assert ingest_day(1, pack.settings) == {"ok": True, "day": 1, "records_processed": 1, "feedback_processed": 0}
+    result = ingest_day(1, pack.settings)
+    assert {key: result[key] for key in ("ok", "day", "records_processed", "feedback_processed")} == {"ok": True, "day": 1, "records_processed": 1, "feedback_processed": 0}
+    assert result["extraction"]["deterministic_completed"] == 1
     assert len(rows(pack, "organizations")) == 2
     people = {person["id"]: person for person in rows(pack, "people")}
     assert people["p1"]["org_id"] == "org-a"
@@ -234,7 +236,8 @@ def test_cli_process_persistence_and_real_counts(pack, tmp_path):
             "R3_PACK": str(pack.root), "WORKELATE_RUNTIME_DIR": str(pack.settings.runtime_dir), "WORKELATE_LOG_LEVEL": "INFO",
         })
         assert result.returncode == 0
-        assert payload == {"ok": True, "day": day, "records_processed": 1, "feedback_processed": int(day > 1)}
+        assert {key: payload[key] for key in ("ok", "day", "records_processed", "feedback_processed")} == {"ok": True, "day": day, "records_processed": 1, "feedback_processed": int(day > 1)}
+        assert payload["extraction"]["deterministic_completed"] == day
         assert "Completed ingestion" in result.stderr
         assert "INFO" not in result.stdout
         assert "Private source text" not in result.stderr

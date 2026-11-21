@@ -12,7 +12,6 @@ from workelate.config import load_settings
 from workelate.logging_config import configure_logging
 from workelate.ingestion.errors import IngestionError
 from workelate.ingestion.service import ingest_day
-from workelate.placeholders import execute
 from workelate.schemas import AskRequest, BriefRequest, ForgetRequest, IngestRequest
 
 
@@ -41,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     brief = commands.add_parser("brief", allow_abbrev=False)
     brief.add_argument("--person", required=True)
     brief.add_argument("--date", required=True)
+    brief.add_argument("--pretty", action="store_true")
     ask = commands.add_parser("ask", allow_abbrev=False)
     ask.add_argument("--person", required=True)
     ask.add_argument("--at", required=True)
@@ -61,6 +61,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = vars(build_parser().parse_args(argv))
         command = args.pop("command")
+        pretty = args.pop("pretty", False)
         schema = {"ingest": IngestRequest, "brief": BriefRequest, "ask": AskRequest, "forget": ForgetRequest}[command]
         request = schema.model_validate(args)
         settings = load_settings()
@@ -69,7 +70,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload = ingest_day(request.day, settings)
             emit(payload)
             return 0
-        result = execute(command, request, settings)
+        if command == "ask":
+            from workelate.reasoning.answer_engine import ask_question
+            emit(ask_question(request.person, request.at, request.ask, settings))
+            return 0
+        if command == "brief":
+            from workelate.briefs.service import generate_briefs
+            payload = generate_briefs(request.person, request.date, settings, polish=pretty)
+            if pretty:
+                emit([{"meeting_id": item["meeting_id"], "paragraph": item["paragraph"], "usage": item["usage"]} for item in payload])
+            else:
+                emit(payload)
+            return 0
+        from workelate.forgetting.service import forget_information
+        emit(forget_information(request.person, request.what, settings))
+        return 0
     except JSONHelp as help_request:
         emit({"help": help_request.text})
         return 0
@@ -89,8 +104,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.error("Unexpected internal error.")
         emit({"error": "internal_error"})
         return 1
-    emit(result.payload)
-    return result.exit_code
 
 
 if __name__ == "__main__":

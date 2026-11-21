@@ -15,6 +15,10 @@ from workelate.schemas.feedback import Feedback
 from workelate.schemas.records import ClientsAdapter, OrganizationsAdapter, RecordAdapter
 from workelate.storage.database import connect_database, transaction
 from workelate.storage.schema import RESET_TABLES
+from workelate.storage.migrations import MEMORY_RESET_TABLES
+from workelate.retrieval.schema import SEARCH_RESET_TABLES
+from workelate.feedback.schema import LEARNING_RESET_TABLES
+from workelate.forgetting.schema import FORGET_RESET_TABLES
 from workelate.time_utils import normalized_utc
 
 logger = logging.getLogger("workelate")
@@ -89,7 +93,7 @@ def _store_feedback(conn, feedback: Feedback, raw: dict, raw_text: str, day: int
         raise IngestionError("source_integrity_error", source=source, line=line) from exc
 
 
-def ingest_day(day: int, settings: Settings) -> dict:
+def ingest_day(day: int, settings: Settings, *, llm_client=None, feedback_client=None) -> dict:
     if isinstance(day, bool) or not isinstance(day, int) or day <= 0:
         raise IngestionError("invalid_day")
     data = settings.pack_dir / "data"
@@ -98,7 +102,7 @@ def ingest_day(day: int, settings: Settings) -> dict:
         with connect_database(database_path(settings)) as conn, transaction(conn):
             if day == 1:
                 # Transactional reset: a failed new run leaves the previous run intact.
-                for table in RESET_TABLES:
+                for table in (*FORGET_RESET_TABLES, *LEARNING_RESET_TABLES, *SEARCH_RESET_TABLES, *MEMORY_RESET_TABLES, *RESET_TABLES):
                     conn.execute(f"DELETE FROM {table}")
             elif conn.execute("SELECT 1 FROM ingestion_history WHERE day=?", (day - 1,)).fetchone() is None:
                 raise IngestionError("previous_day_not_ingested")
@@ -114,6 +118,9 @@ def ingest_day(day: int, settings: Settings) -> dict:
                     feedback = validate(Feedback, raw, source.name, line)
                     _store_feedback(conn, feedback, raw, text, day - 1, line, source.name)
                     feedback_processed += 1
+            from workelate.forgetting.service import apply_rules, process_forget_feedback
+            process_forget_feedback(conn, day)
+            apply_rules(conn)
             conn.execute("""INSERT INTO ingestion_history VALUES (?, 'completed', ?, ?, ?)
                 ON CONFLICT(day) DO UPDATE SET status=excluded.status,
                 records_processed=excluded.records_processed,
@@ -124,4 +131,13 @@ def ingest_day(day: int, settings: Settings) -> dict:
     except (sqlite3.Error, OSError) as exc:
         raise IngestionError("database_error") from exc
     logger.info("Completed ingestion day %d: %d records, %d feedback", day, records_processed, feedback_processed)
-    return {"ok": True, "day": day, "records_processed": records_processed, "feedback_processed": feedback_processed}
+    from workelate.memory.service import process_memory
+
+    extraction = process_memory(settings, through_day=day, client=llm_client)
+    from workelate.feedback.service import process_feedback
+    learning = process_feedback(settings, through_day=day, client=feedback_client)
+    from workelate.retrieval.indexing import index_records
+    indexing = index_records(settings, through_day=day)
+    return {"ok": True, "day": day, "records_processed": records_processed,
+            "feedback_processed": feedback_processed, "extraction": extraction, "indexing": indexing,
+            "feedback_learning": learning}

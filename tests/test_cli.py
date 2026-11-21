@@ -23,6 +23,9 @@ def invoke(args, cwd, entrypoint=False, extra_env=None):
     env = os.environ.copy()
     for key in ("R3_PACK", "WORKELATE_RUNTIME_DIR", "WORKELATE_LOG_LEVEL", "PYTHONPATH"):
         env.pop(key, None)
+    for key in list(env):
+        if key.startswith(("WORKELATE_LLM_", "WORKELATE_EMBEDDING_")):
+            env.pop(key)
     env.update(extra_env or {})
     executable = Path(sys.executable).parent / ("assist.exe" if os.name == "nt" else "assist")
     prefix = [str(executable)] if entrypoint else [sys.executable, "-m", "workelate.cli"]
@@ -32,24 +35,13 @@ def invoke(args, cwd, entrypoint=False, extra_env=None):
     return result, payload
 
 
-@pytest.mark.parametrize("args", VALID[1:])
+@pytest.mark.parametrize("args", [VALID[3]])
 @pytest.mark.parametrize("entrypoint", [False, True])
-def test_valid_commands_are_honest_placeholders(args, entrypoint, tmp_path):
+def test_forget_without_existing_store_is_json_success(args, entrypoint, tmp_path):
     result, payload = invoke(args, tmp_path, entrypoint)
-    assert result.returncode == 3
-    assert "not implemented" in result.stderr
-    assert "WARNING" not in result.stdout
-    assert "ok" not in payload
-    if args[0] == "brief":
-        assert payload == []
-    elif args[0] == "ask":
-        assert set(payload) == {"answer", "matched", "clarify", "refused", "usage"}
-        assert payload["answer"] == {"text": "Question answering is not implemented in Stage 1.", "sources": []}
-        assert payload["matched"] == []
-        assert payload["clarify"] is payload["refused"] is None
-        assert payload["usage"] == {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "ms": 0}
-    else:
-        assert payload == {"error": "not_implemented", "command": args[0]}
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert payload == {"ok": True}
     assert list(tmp_path.iterdir()) == []
 
 
@@ -89,7 +81,7 @@ def test_valid_utc_forms(value, tmp_path):
     args = VALID[2].copy()
     args[4] = value
     result, _ = invoke(args, tmp_path)
-    assert result.returncode == 3
+    assert result.returncode == 0
 
 
 @pytest.mark.parametrize("index", [2, 3])
@@ -122,7 +114,7 @@ def test_help_is_json(args, tmp_path):
 def test_log_level(tmp_path):
     result, _ = invoke(VALID[3], tmp_path, extra_env={"WORKELATE_LOG_LEVEL": "ERROR"})
     assert result.stderr == ""
-    assert result.returncode == 3
+    assert result.returncode == 0
 
 
 def test_invalid_configuration_is_safe(tmp_path):
@@ -164,7 +156,7 @@ def test_unexpected_failure_is_sanitized(monkeypatch, capsys):
     def fail(*args):
         raise RuntimeError("private data must stay hidden")
 
-    monkeypatch.setattr(cli, "execute", fail)
+    monkeypatch.setattr(cli, "load_settings", fail)
     assert cli.main(VALID[3]) == 1
     captured = capsys.readouterr()
     assert json.loads(captured.out) == {"error": "internal_error"}
