@@ -118,8 +118,12 @@ class HTTPEmbedder:
 def _local_model(model, revision, device, cache_dir):
     from sentence_transformers import SentenceTransformer
 
-    return SentenceTransformer(model, revision=revision, device=device,
-                               cache_folder=cache_dir, trust_remote_code=False)
+    options = dict(revision=revision, device=device, cache_folder=cache_dir, trust_remote_code=False)
+    try:
+        return SentenceTransformer(model, local_files_only=True, **options)
+    except OSError:
+        # Download only on a cache miss; cached models need no Hub checks.
+        return SentenceTransformer(model, **options)
 
 
 class HuggingFaceEmbedder:
