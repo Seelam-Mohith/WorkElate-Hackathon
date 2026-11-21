@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from workelate.storage.schema import SCHEMA
+from workelate.storage.migrations import migrate
 
 
 @contextmanager
@@ -23,6 +24,7 @@ def connect_database(path: Path, *, read_only: bool = False) -> Iterator[sqlite3
             # executescript has implicit transaction behavior: use it only here,
             # never during a day's data transaction.
             conn.executescript("BEGIN IMMEDIATE;\n" + SCHEMA + "\nCOMMIT;")
+            migrate(conn)
         yield conn
     finally:
         if conn.in_transaction:
