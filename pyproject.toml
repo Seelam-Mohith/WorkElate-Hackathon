@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "workelate"
+version = "0.1.0"
+description = "WorkElate workplace assistant CLI foundation"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2,<3", "tzdata>=2024.1; sys_platform == 'win32'"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+assist = "workelate.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
